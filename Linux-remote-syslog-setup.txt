@@ -1,0 +1,324 @@
+﻿Tab 1
+To set up a new syslog server with the provided configuration, you'll need to follow these steps.
+Step 1: Install rsyslog
+Ubuntu/Debian based: 
+sudo apt-get update
+sudo apt-get install rsyslog
+
+
+Redhat / centos based:
+sudo yum install rsyslog
+
+
+Step 2: Check the status of service
+sudo systemctl status rsyslog
+
+
+If status is inactive & disabled we need to start & enable it.
+sudo systemctl enable –now rsyslog
+
+
+Step 3: Manually Create Directories
+The configuration specifies that logs will be stored in /var/log/remote/udp/ and /var/log/remote/tcp/. You must create the base directory /var/log/remote/ manually. Rsyslog will automatically create the udp and tcp subdirectories, as well as the directories for each client's IP address, because of the $CreateDirs on directive in the configuration.
+
+
+Create the base directory with the correct permissions:
+sudo mkdir -p /var/log/remote
+sudo chown -R syslog:adm /var/log/remote
+sudo chmod -R 755 /var/log/remote
+
+
+* sudo mkdir -p /var/log/remote: Creates the directory and any parent directories that don't exist.
+* sudo chown -R syslog:adm /var/log/remote: Sets the owner to the syslog user and the group to adm, which matches the $FileOwner syslog and $FileGroup adm directives.
+* sudo chmod -R 755 /var/log/remote: Sets permissions to allow the owner (syslog) to read, write, and execute (for directory access), and the group (adm) and others to read and execute.
+
+
+Step 4: Configure TLS (if you require TCP-TLS)
+Note: UDP based remote logging will be work on port 514
+If you plan to use the TCP/TLS input on port 6514, you need to set up the TLS certificates and keys. The configuration expects these files to be in /etc/rsyslog.d/keys/.
+
+
+Manually create the directory for the keys:
+Cmd: sudo mkdir -p /etc/rsyslog.d/keys
+Link for certificates: Certificates
+The all-trusted-cas.pem file contains both CA.pem (the AP’s CA) and localca.pem (the CA that signs the server certificate). In the rsyslog configuration, only one CA file can be specified. Therefore, we need to combine all the CA certificates that will be used.
+This can be done with the following command:
+Cmd: cat ca.pem localca.pem > all-trusted-cas.pem
+
+
+You must then place the following files in this directory:
+* all-trusted-cas.pem
+* server.pem
+* Server.key
+These are not created automatically; you must generate or obtain them from a Certificate Authority.
+
+
+Also, you need to set the permissions to all certificates so that it can be accessed by rsyslog process.
+
+
+sudo chmod 644 *.pem 
+sudo chmod 644 server.key
+
+
+So after all configuration your /etc/rsyslog.d/keys directory should be like;
+tejaskumar@logserver:/etc/rsyslog.d/keys$ ls -l
+total 32
+-rw-r--r-- 1  syslog adm  6284  Oct 15 13:26   all-trusted-cas.pem
+-rw-r--r-- 1  syslog adm  4722  Oct 15 13:26   ca.pem
+-rw-r--r-- 1  syslog adm  1562  Oct 15 13:26   localca.pem
+-r-------- 1  syslog adm  1188  Oct 15 13:26   server.csr
+-rw-r--r-- 1  syslog adm  1704  Oct 15 13:26   server.key
+-rw-r--r-- 1  syslog adm  1424  Oct 15 13:26   server.pem
+Step 5: Configure rsyslog
+Next, replace the content of your rsyslog configuration file, typically located at /etc/rsyslog.conf, with the provided configuration.
+Config file link: https://drive.google.com/file/d/1PQ7VrwBrMPp1QrCa-juKw13cUIbC-pxT/view?usp=sharing
+ OR
+sudo vi /etc/rsyslog.conf
+# ----------------------------------
+# Modules
+# ----------------------------------
+module(load="imuxsock")  # local system logging
+module(load="imklog")    # kernel logging
+module(load="imudp")     # UDP syslog input
+module(load="imtcp")     # TCP input with TLS
+
+
+# ----------------------------------
+# Global TLS Settings (for TCP/TLS)
+# ----------------------------------
+global(
+    DefaultNetstreamDriver="gtls"
+    DefaultNetstreamDriverCAFile="/etc/rsyslog.d/keys/san_cn/server3/combine_root_ap_ca.pem"
+    DefaultNetstreamDriverCertFile="/etc/rsyslog.d/keys/san_cn/server3/combine_server3_intermediate_cert.pem"
+    DefaultNetstreamDriverKeyFile="/etc/rsyslog.d/keys/san_cn/server3/server.key")
+
+
+# ----------------------------------
+# Templates
+# ----------------------------------
+# UDP: folder per client IP
+template(name="DynamicFileUDP" type="list") {
+    constant(value="/var/log/remote/udp/")
+    property(name="fromhost-ip")
+    constant(value="/syslog.log")
+}
+
+
+# TCP: folder per client IP
+template(name="DynamicFileTCP" type="list") {
+    constant(value="/var/log/remote/tcp/")
+    property(name="fromhost-ip")
+    constant(value="/syslog.log")
+}
+
+
+# Simple template to log the full raw message received
+template(name="simple_raw_format" type="string"
+    string="%rawmsg%\n"
+)
+
+
+# ----------------------------------
+# Rulesets
+# ----------------------------------
+ruleset(name="remote_udp") {
+    action(
+        type="omfile"
+        dynaFile="DynamicFileUDP"
+        template="simple_raw_format"
+        action.resumeRetryCount="-1"
+        queue.type="LinkedList"
+        queue.workerThreads="1"
+    )
+}
+
+
+ruleset(name="remote_tcp_tls") {
+    action(
+        type="omfile"
+        dynaFile="DynamicFileTCP"
+        template="simple_raw_format"
+        action.resumeRetryCount="-1"
+        queue.type="LinkedList"
+        queue.workerThreads="1"
+    )
+}
+
+
+# ----------------------------------
+# Inputs
+# ----------------------------------
+# UDP input: all clients send to port 514
+input(
+    type="imudp"
+    port="514"
+    ruleset="remote_udp"
+)
+
+
+# TCP/TLS input: all clients send to port 6514
+input(
+    type="imtcp"
+    port="6514"
+    ruleset="remote_tcp_tls"
+    StreamDriver.Name="gtls"
+    StreamDriver.Mode="1"
+    StreamDriver.AuthMode="anon"
+)
+
+
+# ----------------------------------
+# File Handling Options
+# ----------------------------------
+$CreateDirs on
+$FileOwner syslog
+$FileGroup adm
+$FileCreateMode 0640
+$DirCreateMode 0755
+
+
+
+
+Step 6: Test and Restart rsyslog
+After setting up the configuration and directories, validate the configuration file for any errors and restart the rsyslog service.
+
+
+Test the configuration:
+Cmd: sudo rsyslogd -N 1
+
+
+So, If you see rsyslogd: End of config validation run. Bye., it means the configuration is valid.
+
+
+Restart the service:
+Cmd: sudo systemctl restart rsyslog
+
+
+The new syslog server should now be running and listening for UDP logs on port 514 and TCP/TLS logs on port 6514. When a client sends a log, rsyslog will automatically create a new directory based on the client's IP address inside /var/log/remote/udp/ or /var/log/remote/tcp/ and save the logs there.
+
+
+So, for read/tail you need to execute cmd: sudo -s & now you all set to go.
+  
+
+Backup config
+root@pthqm:/var/log/remote/tcp# rsyslogd -v
+rsyslogd  8.2510.0 (aka 2025.10) compiled with:
+        PLATFORM:                               x86_64-pc-linux-gnu
+        PLATFORM (lsb_release -d):
+        FEATURE_REGEXP:                         Yes
+        GSSAPI Kerberos 5 support:              Yes
+        FEATURE_DEBUG (debug build, slow code): No
+        32bit Atomic operations supported:      Yes
+        64bit Atomic operations supported:      Yes
+        memory allocator:                       system default
+        Runtime Instrumentation (slow code):    No
+        uuid support:                           Yes
+        systemd support:                        Yes
+        Config file:                            /etc/rsyslog.conf
+        PID file:                               /run/rsyslogd.pid
+        Number of Bits in RainerScript integers: 64
+
+
+See https://www.rsyslog.com for more information.
+root@pthqm:/var/log/remote/tcp# cat /etc/rsyslog.conf 
+# ----------------------------------
+# Modules
+# ----------------------------------
+module(load="imuxsock")  # local system logging
+module(load="imklog")    # kernel logging
+module(load="imudp")     # UDP syslog input
+module(load="imtcp")     # TCP input with TLS
+
+
+# ----------------------------------
+# Global TLS Settings (for TCP/TLS)
+# ----------------------------------
+global(
+    DefaultNetstreamDriver="gtls"
+    DefaultNetstreamDriverCAFile="/etc/rsyslog.d/keys/san_cn/server3/combine_root_ap_ca.pem"
+    DefaultNetstreamDriverCertFile="/etc/rsyslog.d/keys/san_cn/server3/combine_server3_intermediate_cert.pem"
+    DefaultNetstreamDriverKeyFile="/etc/rsyslog.d/keys/san_cn/server3/server.key")
+
+
+# ----------------------------------
+# Templates
+# ----------------------------------
+# UDP: folder per client IP
+template(name="DynamicFileUDP" type="list") {
+    constant(value="/var/log/remote/udp/")
+    property(name="fromhost-ip")
+    constant(value="/syslog.log")
+}
+
+
+# TCP: folder per client IP
+template(name="DynamicFileTCP" type="list") {
+    constant(value="/var/log/remote/tcp/")
+    property(name="fromhost-ip")
+    constant(value="/syslog.log")
+}
+
+
+# Simple template to log the full raw message received
+template(name="simple_raw_format" type="string"
+    string="%rawmsg%\n"
+)
+
+
+# ----------------------------------
+# Rulesets
+# ----------------------------------
+ruleset(name="remote_udp") {
+    action(
+        type="omfile"
+        dynaFile="DynamicFileUDP"
+        template="simple_raw_format"
+        action.resumeRetryCount="-1"
+        queue.type="LinkedList"
+        queue.workerThreads="1"
+    )
+}
+
+
+ruleset(name="remote_tcp_tls") {
+    action(
+        type="omfile"
+        dynaFile="DynamicFileTCP"
+        template="simple_raw_format"
+        action.resumeRetryCount="-1"
+        queue.type="LinkedList"
+        queue.workerThreads="1"
+    )
+}
+
+
+# ----------------------------------
+# Inputs
+# ----------------------------------
+# UDP input: all clients send to port 514
+input(
+    type="imudp"
+    port="514"
+    ruleset="remote_udp"
+)
+
+
+# TCP/TLS input: all clients send to port 6514
+input(
+    type="imtcp"
+    port="6514"
+    ruleset="remote_tcp_tls"
+    StreamDriver.Name="gtls"
+    StreamDriver.Mode="1"
+    StreamDriver.AuthMode="anon"
+)
+
+
+# ----------------------------------
+# File Handling Options
+# ----------------------------------
+$CreateDirs on
+$FileOwner syslog
+$FileGroup adm
+$FileCreateMode 0640
+$DirCreateMode 0755

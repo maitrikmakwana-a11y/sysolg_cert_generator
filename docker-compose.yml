@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_PATH: /app/data/cert_store.db
+      CERT_FACTORY_API_KEY: ${CERT_FACTORY_API_KEY:-}
+      CERT_FACTORY_ADMIN_API_KEY: ${CERT_FACTORY_ADMIN_API_KEY:-}
+      CERT_FACTORY_READONLY_API_KEY: ${CERT_FACTORY_READONLY_API_KEY:-}
+      CERT_FACTORY_ENCRYPTION_KEY: ${CERT_FACTORY_ENCRYPTION_KEY:-}
+    volumes:
+      - backend_data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_KEY: ${CERT_FACTORY_API_KEY:-}
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
