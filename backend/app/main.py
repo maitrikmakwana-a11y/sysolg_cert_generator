@@ -367,12 +367,19 @@ def generate_syslog_package(payload: SyslogPackageRequest):
    sudo mkdir -p /etc/rsyslog.d/keys
 
 2. Copy these files into that directory:
-   server.pem
-   server.key
-   localca.pem
-   all-trusted-cas.pem
+   server.pem              - Server certificate presented by rsyslog.
+   server.key              - Private key for server.pem; never share it.
+   localca.pem             - The single public CA certificate that signed
+                             server.pem. Install this certificate in every
+                             client/AP trust store so clients can verify the
+                             syslog server.
+   all-trusted-cas.pem     - Public CA bundle used by rsyslog to verify peers.
+                             TLS: contains the server CA.
+                             mTLS: contains the server CA and Arista ca.pem.
+   rsyslog.conf             - Rsyslog listener and TLS configuration.
 
-3. Copy rsyslog.conf to /etc/rsyslog.conf.
+3. Copy rsyslog.conf to /etc/rsyslog.conf. It points rsyslog at server.pem,
+   server.key, and all-trusted-cas.pem.
 
 4. Set permissions so rsyslog can read the certificates. Protect server.key
    more strictly because it is a private key.
@@ -381,7 +388,7 @@ def generate_syslog_package(payload: SyslogPackageRequest):
    sudo rsyslogd -N 1
    sudo systemctl restart rsyslog
 
-{('mTLS AP setup: each AP keeps its own existing client certificate and private key. You only need the AP Root CA on the server; each AP presents its certificate during connection. Install localca.pem in the AP trust store.' if payload.mode == 'mtls' else 'TLS setup: install localca.pem in every client trust store so clients can verify the syslog server.')}
+{('mTLS AP setup: install the single localca.pem certificate in every AP trust store so APs can verify the syslog server. Each AP keeps its own existing client certificate and private key and presents that certificate to rsyslog. The Arista ca.pem is trusted by the server through all-trusted-cas.pem.' if payload.mode == 'mtls' else 'TLS setup: install the single localca.pem certificate in every client trust store so clients can verify the syslog server.')}
 
 Never share server.key. Trust bundles contain public CA certificates only.
 '''
@@ -395,4 +402,5 @@ Never share server.key. Trust bundles contain public CA certificates only.
             package.writestr("client.pem", payload.client_cert_pem)
             package.writestr("client.key", payload.client_key_pem)
         package.writestr("SETUP-INSTRUCTIONS.txt", instructions)
-    return Response(content=archive.getvalue(), media_type="application/zip", headers={"Content-Disposition": "attachment; filename=syslog-certificate-package.zip"})
+    package_filename = f"syslog-{payload.mode}-certificate-package.zip"
+    return Response(content=archive.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={package_filename}"})

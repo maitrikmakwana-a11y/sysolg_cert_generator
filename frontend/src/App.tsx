@@ -203,12 +203,10 @@ function App() {
       const configData = await configResponse.json();
       if (!configResponse.ok) throw new Error(configData.detail || 'rsyslog configuration generation failed');
       setSyslogConfig(configData.config || '');
-      downloadText('server.pem', generatedServer.cert_pem);
-      downloadText('server.key', generatedServer.key_pem);
-      downloadText('localca.pem', caCertText);
-      downloadText('all-trusted-cas.pem', bundleData.bundle.bundle_pem);
-      downloadText('rsyslog.conf', configData.config);
-      setMessage('mTLS setup complete. Server files and trust bundle downloaded.');
+      const packageResponse = await apiFetch(`${API_BASE}/api/v1/syslog/package`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'mtls', server_cert_pem: generatedServer.cert_pem, server_key_pem: generatedServer.key_pem, server_ca_pem: caCertText, trust_bundle_pem: bundleData.bundle.bundle_pem, rsyslog_config: configData.config }) });
+      if (!packageResponse.ok) { const data = await packageResponse.json(); throw new Error(data.detail || 'Certificate package generation failed'); }
+      const url = URL.createObjectURL(await packageResponse.blob()); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'syslog-mtls-certificate-package.zip'; anchor.click(); URL.revokeObjectURL(url);
+      setMessage('mTLS setup complete. ZIP package downloaded.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'mTLS setup failed'); }
   };
 
