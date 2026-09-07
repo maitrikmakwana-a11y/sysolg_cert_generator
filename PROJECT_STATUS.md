@@ -74,19 +74,11 @@ This project is a self-hosted certificate management platform for QA and testing
 - Add config snippets for nginx, Apache, OpenSSL, rsyslog, and mTLS clients
 
 ### Phase 5 - Security and production readiness
-- Configurable API-key authentication via `CERT_FACTORY_API_KEY`
-- Separate admin/read-only API keys with write protection
-- Audit logging for every HTTP request with a protected audit endpoint
-- Private keys removed from normal CA/certificate listing responses
-- Optional Fernet encryption of private keys at rest with existing-record migration
-- Strict naming, environment, and domain validation
-- Uploaded PEM bundle and certificate type validation
-- Safe artifact filename normalization for exports
-- Fine-grained user/role administration remains future hardening work
-
-### Stateless syslog workflow
-- One-click complete syslog ZIP package with certificates, trust bundle, rsyslog configuration, and setup instructions
-- mTLS package supports existing AP client certificates without generating unnecessary client CA material
+- Add authentication and role-based access
+- Add audit logging for all operations
+- Add secure storage and file handling improvements
+- Add validation for uploaded PEM bundles
+- Add file naming and validation rulels for cert/key pairs
 
 ---
 
